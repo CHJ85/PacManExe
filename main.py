@@ -1,6 +1,5 @@
 import pygame
 pygame.init()
-import keyboard as key
 from const import *
 from math import sin, cos, radians, degrees, atan2
 import random
@@ -15,6 +14,11 @@ floor = pygame.transform.scale(pygame.image.load('src/floor.png'), (WIDTH, HEIGH
 level = 1
 super_points = 5
 points = 100
+master_volume = 0.5  # Global variable for master volume control
+
+# Game Configuration Settings
+game_mode = '3D'  # Options: '3D', 'Classic'
+difficulty = 'Normal'  # Options: 'Easy', 'Normal', 'Hard'
 
 def check_one_signed(a, b):
     if (a >= 0 and b >= 0) or (a <= 0 and b <= 0):
@@ -27,7 +31,6 @@ def dist_between_point(x1, y1, x2, y2):
 
 
 def print_text(sc, x, y, text, size, color, align='left', font=None):
-
     font = pygame.font.Font(font, size)
     surf = font.render(text, True, color)
     if align == 'left':
@@ -45,6 +48,7 @@ class NPC:
         self.angle = angle
         self.sprite = sprite
         self.sprite_super = sprite_super
+        self.base_speed = speed
         self.speed = speed
         self.hunt = False
         self.way_to_roam = (self.x // TILE_SIZE, self.y // TILE_SIZE)
@@ -68,6 +72,8 @@ class NPC:
                     seen.add((x2, y2))
 
     def move(self, sc, field, player, raycaster):
+        diff_multiplier = 0.7 if difficulty == 'Easy' else (1.3 if difficulty == 'Hard' else 1.0)
+
         if self.x // TILE_SIZE >= 8 and self.x // TILE_SIZE <= 10 and self.y // TILE_SIZE == 9:
             self.run_away = False
         if self.run_away and not (self.x // TILE_SIZE >= 8 and self.x // TILE_SIZE <= 10 and self.y // TILE_SIZE == 9):
@@ -76,16 +82,17 @@ class NPC:
                 x_to = way[1][0] * TILE_SIZE + TILE_SIZE / 2
                 y_to = way[1][1] * TILE_SIZE + TILE_SIZE / 2
 
+                step = 10 * diff_multiplier
                 if x_to > self.x:
-                    self.x += 10
+                    self.x += step
                 elif x_to < self.x:
-                    self.x -= 10
+                    self.x -= step
 
                 if y_to > self.y:
-                    self.y += 10
+                    self.y += step
                 elif y_to < self.y:
-                    self.y -= 10
-        elif (dist_between_point(self.x, self.y, player.x, player.y) <= 500 or not raycaster.check_intersection(sc, field, self.x, self.y, player.x, player.y)) and not player.super_mode:
+                    self.y -= step
+        elif (dist_between_point(self.x, self.y, player.x, player.y) <= (700 if difficulty == 'Hard' else 500) or not raycaster.check_intersection(sc, field, self.x, self.y, player.x, player.y)) and not player.super_mode:
             self.hunt = True
             way = self.find_shortest_way(field, (self.x // TILE_SIZE, self.y // TILE_SIZE), (player.x // TILE_SIZE, player.y // TILE_SIZE))
 
@@ -93,15 +100,16 @@ class NPC:
                 x_to = way[1][0] * TILE_SIZE + TILE_SIZE / 2
                 y_to = way[1][1] * TILE_SIZE + TILE_SIZE / 2
 
+                current_speed = self.speed * diff_multiplier
                 if x_to > self.x:
-                    self.x += self.speed
+                    self.x += current_speed
                 elif x_to < self.x:
-                    self.x -= self.speed
+                    self.x -= current_speed
 
                 if y_to > self.y:
-                    self.y += self.speed
+                    self.y += current_speed
                 elif y_to < self.y:
-                    self.y -= self.speed
+                    self.y -= current_speed
 
         else:
             if self.x // TILE_SIZE == self.way_to_roam[0] and self.y // TILE_SIZE == self.way_to_roam[1]:
@@ -114,20 +122,21 @@ class NPC:
                 self.way_to_roam = random.choice(to_choose)
 
             else:
-
                 way = self.find_shortest_way(field, (self.x // TILE_SIZE, self.y // TILE_SIZE), self.way_to_roam)
-                x_to = way[1][0] * TILE_SIZE + TILE_SIZE / 2
-                y_to = way[1][1] * TILE_SIZE + TILE_SIZE / 2
+                if way and len(way) >= 2:
+                    x_to = way[1][0] * TILE_SIZE + TILE_SIZE / 2
+                    y_to = way[1][1] * TILE_SIZE + TILE_SIZE / 2
 
-                if x_to > self.x:
-                    self.x += self.speed
-                elif x_to < self.x:
-                    self.x -= self.speed
+                    current_speed = self.speed * diff_multiplier
+                    if x_to > self.x:
+                        self.x += current_speed
+                    elif x_to < self.x:
+                        self.x -= current_speed
 
-                if y_to > self.y:
-                    self.y += self.speed
-                elif y_to < self.y:
-                    self.y -= self.speed
+                    if y_to > self.y:
+                        self.y += current_speed
+                    elif y_to < self.y:
+                        self.y -= current_speed
 
             self.hunt = False
 
@@ -167,22 +176,70 @@ class Field:
             el = random.choice(to_choose)
             self.field[el[1]][el[0]] = 2
 
-    def draw_minimap(self, sc, player, frames, k=5):
+    def draw_minimap(self, sc, player, frames, NPC_s, k=6):
+        map_width = self.size_x * (TILE_SIZE / k)
+        map_height = self.size_y * (TILE_SIZE / k)
+        offset_x = WIDTH - map_width - 20
+        offset_y = HEIGHT - map_height - 20
+
+        map_surface = pygame.Surface((map_width, map_height))
+        map_surface.set_alpha(150)
+        map_surface.fill((20, 20, 20))
+        sc.blit(map_surface, (offset_x, offset_y))
+
         for raw in range(self.size_x):
             for tile in range(self.size_y):
-                dist_to_player = max((player.x // TILE_SIZE - raw) ** 2 + (player.y // TILE_SIZE - tile) ** 2, 1)
-                if player.super_mode or dist_to_player <= 10:
-                    if self.field[tile][raw] == 1:
-                        pygame.draw.rect(sc, (0, 0, min(150 / dist_to_player, 150)),
-                                         (raw * TILE_SIZE / k, tile * TILE_SIZE / k, TILE_SIZE / k, TILE_SIZE / k))
-                    else:
-                        pygame.draw.rect(sc, (0, 0, min(50 / dist_to_player, 50)),
-                                         (raw * TILE_SIZE / k, tile * TILE_SIZE / k, TILE_SIZE / k, TILE_SIZE / k))
+                if self.field[tile][raw] == 1:
+                    pygame.draw.rect(sc, (80, 80, 120),
+                                     (offset_x + raw * TILE_SIZE / k, offset_y + tile * TILE_SIZE / k, TILE_SIZE / k, TILE_SIZE / k))
+                elif self.field[tile][raw] == 0 or self.field[tile][raw] == 2:
+                    pygame.draw.rect(sc, (30, 30, 30),
+                                     (offset_x + raw * TILE_SIZE / k, offset_y + tile * TILE_SIZE / k, TILE_SIZE / k, TILE_SIZE / k))
                     if self.field[tile][raw] == 0:
-                        pygame.draw.circle(sc, (min(255 / dist_to_player, 255), min(255 / dist_to_player, 255), 0), (raw * TILE_SIZE / k + TILE_SIZE / 2 / k, tile * TILE_SIZE / k + TILE_SIZE / 2 / k), TILE_SIZE / k / 5)
-        ind = int(time / (FPS / 20)) % len(frames)
-        sc.blit(pygame.transform.rotate(frames[ind], player.angle), (player.x / k - frames[ind].get_width() / 2, player.y / k - frames[ind].get_height() / 2))
+                        pygame.draw.circle(sc, (200, 200, 0), (offset_x + raw * TILE_SIZE / k + TILE_SIZE / 2 / k, offset_y + tile * TILE_SIZE / k + TILE_SIZE / 2 / k), max(1, TILE_SIZE / k / 6))
 
+        for npc in NPC_s:
+            ghost_color = (255, 0, 0) if npc.color == 'red' else (0, 100, 255) if npc.color == 'blue' else (255, 255, 0) if npc.color == 'yellow' else (255, 100, 200)
+            if player.super_mode:
+                ghost_color = (0, 0, 255)
+            pygame.draw.circle(sc, ghost_color, (offset_x + npc.x / k, offset_y + npc.y / k), max(2, TILE_SIZE / k / 3))
+
+        ind = int(time / (FPS / 20)) % len(frames)
+        rotated_frame = pygame.transform.rotate(frames[ind], player.angle)
+        scaled_frame = pygame.transform.scale(rotated_frame, (int(20 / (k/5)), int(20 / (k/5))))
+        sc.blit(scaled_frame, (offset_x + player.x / k - scaled_frame.get_width() / 2, offset_y + player.y / k - scaled_frame.get_height() / 2))
+
+    def draw_classic(self, sc, player, frames, NPC_s):
+        tile_size_classic = min(WIDTH // self.size_x, HEIGHT // self.size_y)
+        offset_x = (WIDTH - self.size_x * tile_size_classic) // 2
+        offset_y = (HEIGHT - self.size_y * tile_size_classic) // 2
+
+        sc.fill((5, 5, 8))
+
+        for raw in range(self.size_x):
+            for tile in range(self.size_y):
+                rx = offset_x + raw * tile_size_classic
+                ry = offset_y + tile * tile_size_classic
+                if self.field[tile][raw] == 1:
+                    pygame.draw.rect(sc, (10, 10, 80), (rx, ry, tile_size_classic, tile_size_classic))
+                elif self.field[tile][raw] == 0:
+                    pygame.draw.circle(sc, (200, 200, 0), (rx + tile_size_classic // 2, ry + tile_size_classic // 2), max(2, tile_size_classic // 6))
+                elif self.field[tile][raw] == 2:
+                    pygame.draw.circle(sc, (200, 80, 80), (rx + tile_size_classic // 2, ry + tile_size_classic // 2), max(4, tile_size_classic // 3))
+
+        for npc in NPC_s:
+            ghost_img = npc.sprite_super if player.super_mode else npc.sprite
+            scaled_ghost = pygame.transform.scale(ghost_img, (int(tile_size_classic * 0.8), int(tile_size_classic * 0.8)))
+            nx = offset_x + (npc.x / (self.size_x * TILE_SIZE)) * (self.size_x * tile_size_classic)
+            ny = offset_y + (npc.y / (self.size_y * TILE_SIZE)) * (self.size_y * tile_size_classic)
+            sc.blit(scaled_ghost, (nx - scaled_ghost.get_width() / 2, ny - scaled_ghost.get_height() / 2))
+
+        ind = int(time / (FPS / 20)) % len(frames)
+        rotated_frame = pygame.transform.rotate(frames[ind], player.angle)
+        scaled_frame = pygame.transform.scale(rotated_frame, (int(tile_size_classic * 0.8), int(tile_size_classic * 0.8)))
+        px = offset_x + (player.x / (self.size_x * TILE_SIZE)) * (self.size_x * tile_size_classic)
+        py = offset_y + (player.y / (self.size_y * TILE_SIZE)) * (self.size_y * tile_size_classic)
+        sc.blit(scaled_frame, (px - scaled_frame.get_width() / 2, py - scaled_frame.get_height() / 2))
 
 class Player:
     def __init__(self, x, y, angle=0.1, speed=5, angle_speed=5):
@@ -198,98 +255,80 @@ class Player:
 
     def check_movements(self, field):
         global moving
-        mouse_x, mouse_y = pygame.mouse.get_pos()
-        if mouse_x != WIDTH // 2:
-            self.angle -= (mouse_x - WIDTH // 2) * SENSITIVITY / 5
-            pygame.mouse.set_pos((WIDTH // 2, HEIGHT // 2))
+        pressed_keys = pygame.key.get_pressed()
 
-        moving_now = False
+        if game_mode == '3D':
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            if mouse_x != WIDTH // 2:
+                self.angle -= (mouse_x - WIDTH // 2) * SENSITIVITY / 5
+                pygame.mouse.set_pos((WIDTH // 2, HEIGHT // 2))
 
-        if key.is_pressed('w'):
-            x1 = self.x + self.speed * cos(radians(self.angle))
-            y1 = self.y - self.speed * sin(radians(self.angle))
-            if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] != 1 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                self.x = x1
-                self.y = y1
-                moving = True
-                moving_now = True
-                if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 0 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (
-                        y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.score += 1
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/point_claim.wav'))
-                elif field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 2 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.super_mode = True
-                    self.super_mode_duration = 0
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/bonus_claim.wav'))
+            # 3D relative controls (W/S forward/back, A/D strafe)
+            move_vectors = []
+            if pressed_keys[pygame.K_w] or pressed_keys[pygame.K_UP]:
+                move_vectors.append(self.angle)
+            if pressed_keys[pygame.K_s] or pressed_keys[pygame.K_DOWN]:
+                move_vectors.append(self.angle + 180)
+            if pressed_keys[pygame.K_a]:
+                move_vectors.append(self.angle + 90)
+            if pressed_keys[pygame.K_d]:
+                move_vectors.append(self.angle - 90)
 
-        if key.is_pressed('a'):
-            x1 = self.x + self.speed * cos(radians(self.angle + 90))
-            y1 = self.y - self.speed * sin(radians(self.angle + 90))
-            if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] != 1:
-                self.x = x1
-                self.y = y1
-                moving = True
-                moving_now = True
-                if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 0 and \
+            moving_now = False
+            for ang in move_vectors:
+                x1 = self.x + self.speed * cos(radians(ang))
+                y1 = self.y - self.speed * sin(radians(ang))
+                if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] != 1 and \
                         (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.score += 1
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/point_claim.wav'))
-                elif field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 2 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.super_mode = True
-                    self.super_mode_duration = 0
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/bonus_claim.wav'))
+                    self.x = x1
+                    self.y = y1
+                    moving = True
+                    moving_now = True
+                    self.handle_collectibles(field, x1, y1)
+                    break
+            if not moving_now:
+                moving = False
+        else:
+            # Classic Mode direct cardinal controls (Up, Down, Left, Right)
+            move_vector = None
+            if pressed_keys[pygame.K_UP]:
+                move_vector = 90
+                self.angle = 90
+            elif pressed_keys[pygame.K_DOWN]:
+                move_vector = 270
+                self.angle = 270
+            elif pressed_keys[pygame.K_LEFT]:
+                move_vector = 180
+                self.angle = 180
+            elif pressed_keys[pygame.K_RIGHT]:
+                move_vector = 0
+                self.angle = 0
 
-        if key.is_pressed('s'):
-            x1 = self.x + self.speed * cos(radians(self.angle + 180))
-            y1 = self.y - self.speed * sin(radians(self.angle + 180))
-            if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] != 1:
-                self.x = x1
-                self.y = y1
-                moving = True
-                moving_now = True
-                if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 0 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.score += 1
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/point_claim.wav'))
-                elif field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 2 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.super_mode = True
-                    self.super_mode_duration = 0
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/bonus_claim.wav'))
+            if move_vector is not None:
+                x1 = self.x + self.speed * cos(radians(move_vector))
+                y1 = self.y - self.speed * sin(radians(move_vector))
+                if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] != 1:
+                    self.x = x1
+                    self.y = y1
+                    moving = True
+                    self.handle_collectibles(field, x1, y1)
+                else:
+                    moving = False
+            else:
+                moving = False
 
-        if key.is_pressed('d'):
-            x1 = self.x + self.speed * cos(radians(self.angle - 90))
-            y1 = self.y - self.speed * sin(radians(self.angle - 90))
-            if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] != 1:
-                self.x = x1
-                self.y = y1
-                moving = True
-                moving_now = True
-                if field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 0 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.score += 1
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/point_claim.wav'))
-                elif field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] == 2 and \
-                        (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
-                    self.super_mode = True
-                    self.super_mode_duration = 0
-                    field.field[int(y1 // TILE_SIZE)][int(x1 // TILE_SIZE)] = -1
-                    pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/bonus_claim.wav'))
-
-
-        if not moving_now:
-            moving = False
+    def handle_collectibles(self, field, x1, y1):
+        tx, ty = int(x1 // TILE_SIZE), int(y1 // TILE_SIZE)
+        if (x1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - x1) ** 2 + (y1 // TILE_SIZE * TILE_SIZE + TILE_SIZE / 2 - y1) ** 2 <= TILE_SIZE ** 2:
+            if field.field[ty][tx] == 0:
+                self.score += 1
+                field.field[ty][tx] = -1
+                pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/point_claim.wav'))
+            elif field.field[ty][tx] == 2:
+                self.super_mode = True
+                self.super_mode_duration = 0
+                field.field[ty][tx] = -1
+                pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/bonus_claim.wav'))
 
 
 class RayCaster:
@@ -333,8 +372,6 @@ class RayCaster:
 
             ray_cur_length_total = min(dist_x, dist_y)
 
-            # pygame.draw.line(sc, (255, 0, 0), (player.x, player.y), (player.x + ray_cur_length_total * cos(radians(angle_cur)), player.y - ray_cur_length_total * sin(radians(angle_cur))))
-
             ray_cur_length_total *= cos(radians(abs(angle_cur - player.angle)))
             angle_in_screen_tan = (WALL_HEIGHT / 2) / ray_cur_length_total
             fragment_height = angle_in_screen_tan * DISTANCE_TO_SCREEN * 2
@@ -361,7 +398,6 @@ class RayCaster:
 
 class Sprite:
     def __init__(self, digit_on_map, type):
-
         self.digit_in_map = digit_on_map
         self.type = type
 
@@ -409,9 +445,7 @@ class Sprite:
     def draw_npc(self, sc, field, player, ray_caster, NPC_s):
         to_draw = []
         for npc in NPC_s:
-
-            dist = ((player.x - npc.x) ** 2 + (
-                        player.y - npc.y) ** 2) ** 0.5
+            dist = ((player.x - npc.x) ** 2 + (player.y - npc.y) ** 2) ** 0.5
             angle_p = player.angle % 360
             dx, dy = npc.x - player.x, player.y - npc.y
 
@@ -435,7 +469,6 @@ class Sprite:
                 sprite_pos_on_screen = (WIDTH - current_ray * (WIDTH // RAYS_AMOUNT) - fragment_height / 2, HEIGHT / 2 - fragment_height / 2 + shift + add_y)
 
                 if 0 <= sprite_pos_on_screen[0] < WIDTH and 0 <= sprite_pos_on_screen[1] < HEIGHT:
-                    c = min(int(255 / dist * 50), 255)
                     if not player.super_mode:
                         to_draw.append(('sprite', dist, npc.sprite, sprite_pos_on_screen, fragment_height))
                     else:
@@ -452,9 +485,8 @@ class Sprite:
 
 class App:
     def create_window(self):
-        WIDTH = pygame.display.Info().current_w
-        HEIGHT = pygame.display.Info().current_h
-        self.sc = pygame.display.set_mode((WIDTH, HEIGHT))
+        global WIDTH, HEIGHT
+        self.sc = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
         self.clock = pygame.time.Clock()
         self.run = True
         self.beat_duration = 100
@@ -463,47 +495,47 @@ class App:
         self.show_plus_10 = False
         self.show_plus_10_duration = 0
 
-
     def check_events(self):
-        global pause, pause_duration_counter
+        global pause, pause_duration_counter, master_volume, WIDTH, HEIGHT, floor
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
-
                 x, y = event.pos
 
                 if pause:
-                    if x >= WIDTH / 2 - 200 and x <= WIDTH / 2 + 200 and y >= HEIGHT / 2 - 120 and y <= HEIGHT / 2 - 30:
+                    if WIDTH / 2 - 200 <= x <= WIDTH / 2 + 200 and HEIGHT / 2 - 120 <= y <= HEIGHT / 2 - 30:
                         pause = False
-                        pygame.mouse.set_pos((WIDTH // 2, HEIGHT // 2))
-                        pygame.mouse.set_visible(False)
-                        pygame.event.set_grab(True)
-                    elif x >= WIDTH / 2 - 200 and x <= WIDTH / 2 + 200 and y >= HEIGHT / 2 + 80 and y <= HEIGHT / 2 + 180:
+                        if game_mode == '3D':
+                            pygame.mouse.set_pos((WIDTH // 2, HEIGHT // 2))
+                            pygame.mouse.set_visible(False)
+                            pygame.event.set_grab(True)
+                    elif WIDTH / 2 - 200 <= x <= WIDTH / 2 + 200 and HEIGHT / 2 + 20 <= y <= HEIGHT / 2 + 110:
                         self.run = False
-                        pygame.mixer.Channel(0).stop()
-                        pygame.mixer.Channel(1).stop()
-                        pygame.mixer.Channel(2).stop()
-                        pygame.mixer.Channel(3).stop()
-                        pygame.mixer.Channel(4).stop()
-                        pygame.mixer.Channel(5).stop()
+                        for i in range(7):
+                            pygame.mixer.Channel(i).stop()
                         return 'exit'
-                    elif x >= WIDTH / 2 - 96 and x <= WIDTH / 2 + 96 and y >= HEIGHT / 2 + 304 and y <= HEIGHT / 2 + 346:
+                    elif WIDTH / 2 - 96 <= x <= WIDTH / 2 + 96 and HEIGHT / 2 + 200 <= y <= HEIGHT / 2 + 242:
                         global SENSITIVITY
                         SENSITIVITY = (x - (WIDTH / 2 - 96)) / 192
+                    elif WIDTH / 2 - 96 <= x <= WIDTH / 2 + 96 and HEIGHT / 2 + 290 <= y <= HEIGHT / 2 + 332:
+                        master_volume = (x - (WIDTH / 2 - 96)) / 192
+                        pygame.mixer.set_num_channels(8)
+                        for i in range(7):
+                            pygame.mixer.Channel(i).set_volume(master_volume)
 
-
-        if key.is_pressed('esc') and pause_duration_counter >= 20:
+        pressed_keys = pygame.key.get_pressed()
+        if pressed_keys[pygame.K_ESCAPE] and pause_duration_counter >= 20:
             pause = not pause
             pause_duration_counter = 0
             if pause:
                 pygame.mouse.set_visible(True)
                 pygame.event.set_grab(False)
             else:
-                pygame.mouse.set_visible(False)
-                pygame.event.set_grab(True)
+                if game_mode == '3D':
+                    pygame.mouse.set_visible(False)
+                    pygame.event.set_grab(True)
             pygame.mouse.set_pos((WIDTH // 2, HEIGHT // 2))
-
 
     def update_window(self):
         global time, time_moving, pause_duration_counter
@@ -513,15 +545,13 @@ class App:
         if moving:
             time_moving += 1
         self.beat_duration_counter += 1
-        pygame.mixer.Channel(1).set_volume(self.danger_volume)
-        #if self.danger_volume:
-        #    pygame.mixer.Channel(1).play(pygame.mixer.Sound('src/danger_theme.mp3'))
+        pygame.mixer.Channel(1).set_volume(self.danger_volume * master_volume)
         if self.beat_duration_counter >= self.beat_duration:
             if not pause:
                 pygame.mixer.Channel(3).play(pygame.mixer.Sound('src/heart_beat.wav'))
             self.beat_duration_counter = 0
 
-        pygame.mixer.Channel(2).set_volume(max(1 - self.danger_volume * 2, 0))
+        pygame.mixer.Channel(2).set_volume(max(1 - self.danger_volume * 2, 0) * master_volume)
 
         if not pygame.mixer.Channel(1).get_busy():
             pygame.mixer.Channel(1).play(pygame.mixer.Sound('src/danger_theme.mp3'))
@@ -547,25 +577,37 @@ class App:
         x, y = pygame.mouse.get_pos()
         color_delta1 = 0
         color_delta2 = 0
-        if x >= WIDTH / 2 - 200 and x <= WIDTH / 2 + 200 and y >= HEIGHT / 2 - 120 and y <= HEIGHT / 2 - 20:
+
+        if WIDTH / 2 - 200 <= x <= WIDTH / 2 + 200 and HEIGHT / 2 - 120 <= y <= HEIGHT / 2 - 30:
             color_delta1 = 50
-        elif x >= WIDTH / 2 - 200 and x <= WIDTH / 2 + 200 and y >= HEIGHT / 2 + 80 and y <= HEIGHT / 2 + 180:
+        elif WIDTH / 2 - 200 <= x <= WIDTH / 2 + 200 and HEIGHT / 2 + 20 <= y <= HEIGHT / 2 + 110:
             color_delta2 = 50
-        pygame.draw.rect(self.sc, (180 - color_delta1, 0, 0), (WIDTH / 2 - 200, HEIGHT / 2 - 120, 400, 100), border_radius=10)
-        print_text(self.sc, WIDTH / 2, HEIGHT / 2 - 110, 'Continue', 60, (255 - color_delta1, 255 - color_delta1, 255 - color_delta1), align='center', font='src/font3.ttf')
-        pygame.draw.rect(self.sc, (180 - color_delta2, 0, 0), (WIDTH / 2 - 200, HEIGHT / 2 + 80, 400, 100), border_radius=10)
-        print_text(self.sc, WIDTH / 2, HEIGHT / 2 + 90, 'Main menu', 60, (255 - color_delta2, 255 - color_delta2, 255 - color_delta2), align='center', font='src/font3.ttf')
-        print_text(self.sc, WIDTH / 2, HEIGHT / 2 + 250, 'Sensitivity', 30,
-                   (255, 255, 255), align='center', font='src/font3.ttf')
-        pygame.draw.rect(self.sc, (255, 255, 255), (WIDTH / 2 - 100, HEIGHT / 2 + 300, 200, 50), 2)
-        pygame.draw.rect(self.sc, (255, 255, 255), (WIDTH / 2 - 96, HEIGHT / 2 + 304, 192 * SENSITIVITY, 42))
+
+        pygame.draw.rect(self.sc, (180 - color_delta1, 0, 0), (WIDTH / 2 - 200, HEIGHT / 2 - 120, 400, 80), border_radius=10)
+        print_text(self.sc, WIDTH / 2, HEIGHT / 2 - 110, 'Continue', 50, (255 - color_delta1, 255 - color_delta1, 255 - color_delta1), align='center', font='src/font3.ttf')
+
+        pygame.draw.rect(self.sc, (180 - color_delta2, 0, 0), (WIDTH / 2 - 200, HEIGHT / 2 + 20, 400, 80), border_radius=10)
+        print_text(self.sc, WIDTH / 2, HEIGHT / 2 + 30, 'Main menu', 50, (255 - color_delta2, 255 - color_delta2, 255 - color_delta2), align='center', font='src/font3.ttf')
+
+        print_text(self.sc, WIDTH / 2, HEIGHT / 2 + 165, 'Sensitivity', 25, (255, 255, 255), align='center', font='src/font3.ttf')
+        pygame.draw.rect(self.sc, (255, 255, 255), (WIDTH / 2 - 100, HEIGHT / 2 + 196, 200, 50), 2)
+        pygame.draw.rect(self.sc, (255, 255, 255), (WIDTH / 2 - 96, HEIGHT / 2 + 200, 192 * SENSITIVITY, 42))
+
+        print_text(self.sc, WIDTH / 2, HEIGHT / 2 + 255, 'Master Volume', 25, (255, 255, 255), align='center', font='src/font3.ttf')
+        pygame.draw.rect(self.sc, (255, 255, 255), (WIDTH / 2 - 100, HEIGHT / 2 + 286, 200, 50), 2)
+        pygame.draw.rect(self.sc, (0, 200, 0), (WIDTH / 2 - 96, HEIGHT / 2 + 290, 192 * master_volume, 42))
 
     def main(self):
         global pause, score
         pause = False
-        pygame.mouse.set_pos((WIDTH // 2, HEIGHT // 2))
-        pygame.mouse.set_visible(False)
-        pygame.event.set_grab(True)
+        if game_mode == '3D':
+            pygame.mouse.set_pos((WIDTH // 2, HEIGHT // 2))
+            pygame.mouse.set_visible(False)
+            pygame.event.set_grab(True)
+        else:
+            pygame.mouse.set_visible(True)
+            pygame.event.set_grab(False)
+
         field = Field()
         player = Player(151, 151)
         ray_caster = RayCaster()
@@ -584,8 +626,7 @@ class App:
             pygame.transform.scale(pygame.image.load('src/pacman/frame2.png'), (20, 20)),
         ]
 
-        sprites = [Sprite(0, 'circle'),
-                   Sprite(None, 'npc')]
+        sprites = [Sprite(0, 'circle'), Sprite(None, 'npc')]
         background_sounds = [
             pygame.mixer.Sound('src/background_audio/1.oga'),
             pygame.mixer.Sound('src/background_audio/2.oga'),
@@ -597,26 +638,22 @@ class App:
             pygame.mixer.Sound('src/background_audio/8.oga'),
             pygame.mixer.Sound('src/background_audio/9.ogg')
         ]
-        pygame.mixer.Channel(0).set_volume(0.05)
+        pygame.mixer.Channel(0).set_volume(0.05 * master_volume)
         pygame.mixer.Channel(1).play(pygame.mixer.Sound('src/danger_theme.mp3'))
         pygame.mixer.Channel(1).set_volume(0)
-        pygame.mixer.Channel(4).set_volume(0.1)
+        pygame.mixer.Channel(4).set_volume(0.1 * master_volume)
         pygame.mixer.Channel(4).play(pygame.mixer.Sound('src/pacman_sound.mp3'))
-        pygame.mixer.Channel(5).set_volume(1)
+        pygame.mixer.Channel(5).set_volume(1 * master_volume)
         pygame.mixer.Channel(5).play(pygame.mixer.Sound('src/opening.mp3'))
-        pygame.mixer.Channel(6).set_volume(0.2)
+        pygame.mixer.Channel(6).set_volume(0.2 * master_volume)
         global score
         while self.run:
             res = self.check_events()
             if res == 'exit':
                 return res
             if player.score >= points:
-                pygame.mixer.Channel(0).stop()
-                pygame.mixer.Channel(1).stop()
-                pygame.mixer.Channel(2).stop()
-                pygame.mixer.Channel(3).stop()
-                pygame.mixer.Channel(4).stop()
-                pygame.mixer.Channel(5).stop()
+                for i in range(7):
+                    pygame.mixer.Channel(i).stop()
 
                 score += player.score + player.score_super
                 return 'win'
@@ -624,15 +661,17 @@ class App:
                 player.check_movements(field)
 
             self.sc.fill((0, 0, 0))
-            to_draw = []
-            to_draw += ray_caster.draw(player, field, self.sc)
-            to_draw += self.draw_sprites(self.sc, field, player, sprites, ray_caster, NPC_s)
-            to_draw = sorted(to_draw, key=lambda x: x[1], reverse=True)
-            self.draw(to_draw)
-            field.draw_minimap(self.sc, player, minimap_frames)
+            if game_mode == '3D':
+                to_draw = []
+                to_draw += ray_caster.draw(player, field, self.sc)
+                to_draw += self.draw_sprites(self.sc, field, player, sprites, ray_caster, NPC_s)
+                to_draw = sorted(to_draw, key=lambda x: x[1], reverse=True)
+                self.draw(to_draw)
+                field.draw_minimap(self.sc, player, minimap_frames, NPC_s)
+            else:
+                field.draw_classic(self.sc, player, minimap_frames, NPC_s)
 
-            print_text(self.sc, WIDTH / 2, 10, f'{player.score}', 70, (255, 255, 0), align='center',
-                       font='src/font2.ttf')
+            print_text(self.sc, WIDTH / 2, 10, f'{player.score}', 70, (255, 255, 0), align='center', font='src/font2.ttf')
             print_text(self.sc, WIDTH - 10, 10, str(int(self.clock.get_fps())), 50, (255, 0, 0), align='right')
             if self.show_plus_10:
                 self.show_plus_10_duration += 1
@@ -641,8 +680,7 @@ class App:
                     self.show_plus_10 = False
                     self.show_plus_10_duration = 0
             if time <= FPS * 5:
-                print_text(self.sc, WIDTH / 2, HEIGHT / 2 - 100, f'Level {level}', 100, (255, 0, 0), align='center',
-                           font='src/font2.ttf')
+                print_text(self.sc, WIDTH / 2, HEIGHT / 2 - 100, f'Level {level}', 100, (255, 0, 0), align='center', font='src/font2.ttf')
                 print_text(self.sc, WIDTH / 2, HEIGHT / 2, f'Collect {points} points', 100, (180, 180, 180), align='center', font='src/font2.ttf')
 
             hunt = False
@@ -650,12 +688,8 @@ class App:
                 if dist_between_point(player.x, player.y, npc.x, npc.y) <= 70:
                     if not player.super_mode:
                         self.run = False
-                        pygame.mixer.Channel(0).stop()
-                        pygame.mixer.Channel(1).stop()
-                        pygame.mixer.Channel(2).stop()
-                        pygame.mixer.Channel(3).stop()
-                        pygame.mixer.Channel(4).stop()
-                        pygame.mixer.Channel(5).stop()
+                        for i in range(7):
+                            pygame.mixer.Channel(i).stop()
 
                         score += player.score + player.score_super
                         return ('lose', npc.color)
@@ -673,7 +707,7 @@ class App:
                     npc.speed = 2
                 if not pause:
                     npc.move(self.sc, field, player, ray_caster)
-                if player.super_mode:
+                if player.super_mode and game_mode == '3D':
                     pygame.draw.circle(self.sc, (255, 0, 0), (npc.x / 5, npc.y / 5), 10)
 
             if hunt:
@@ -703,55 +737,67 @@ class App:
             if pause:
                 self.draw_pause()
             player.super_mode_duration += 1
-            if player.super_mode_duration >= FPS * 10:
+            super_duration_limit = FPS * 5 if difficulty == 'Hard' else (FPS * 15 if difficulty == 'Easy' else FPS * 10)
+            if player.super_mode_duration >= super_duration_limit:
                 player.super_mode = False
             self.update_window()
 
 
 def draw_buttons_main(sc, color1, color2):
-    print_text(sc1, WIDTH * 0.75, HEIGHT * 0.1, 'Menu', 100, (255, 255, 255), font='src/font1.ttf')
-    #pygame.draw.rect(sc, (255, 255, 255), (WIDTH * 0.75, 300, 130, 60), 2)
-    print_text(sc1, WIDTH * 0.75, HEIGHT * 0.1 + 150, 'Start', 80, color1, font='src/font2.ttf')
-    print_text(sc1, WIDTH * 0.75 + 150, HEIGHT * 0.1 + 170, f'Level {level}', 50, (180, 180, 180), font='src/font2.ttf')
-    #pygame.draw.rect(sc, (255, 255, 255), (WIDTH * 0.75, 400, 120, 60), 2)
-    print_text(sc1, WIDTH * 0.75, HEIGHT * 0.1 + 230, 'Quit', 80, color2, font='src/font2.ttf')
+    print_text(sc1, WIDTH * 0.70, HEIGHT * 0.1, 'Menu', 80, (255, 255, 255), font='src/font1.ttf')
+
+    print_text(sc1, WIDTH * 0.70, HEIGHT * 0.1 + 110, 'Start', 60, color1, font='src/font2.ttf')
+    print_text(sc1, WIDTH * 0.70 + 130, HEIGHT * 0.1 + 125, f'Level {level}', 40, (180, 180, 180), font='src/font2.ttf')
+
+    print_text(sc1, WIDTH * 0.70, HEIGHT * 0.1 + 180, f'Mode: {game_mode}', 50, (200, 200, 50), font='src/font2.ttf')
+
+    diff_color = (100, 255, 100) if difficulty == 'Easy' else ((255, 255, 100) if difficulty == 'Normal' else (255, 100, 100))
+    print_text(sc1, WIDTH * 0.70, HEIGHT * 0.1 + 250, f'Diff: {difficulty}', 50, diff_color, font='src/font2.ttf')
+
+    print_text(sc1, WIDTH * 0.70, HEIGHT * 0.1 + 320, 'Quit', 60, color2, font='src/font2.ttf')
 
 
 def draw_main_menu():
-
-    player1 = Player(110, 110)
-    player1.angle = -30.1
-    field1 = Field()
+    global game_mode, difficulty
     bg = pygame.transform.scale(pygame.image.load('src/main_menu_bg.png'), (WIDTH, HEIGHT))
     manual = pygame.transform.scale(pygame.image.load('src/manual.png'), (HEIGHT * 0.4 * 0.73, HEIGHT * 0.4))
-    raycaster1 = RayCaster()
     run = True
     pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/background_music.mp3'))
-    pygame.mixer.Channel(0).set_volume(0.2)
+    pygame.mixer.Channel(0).set_volume(0.2 * master_volume)
     while run:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 x, y = event.pos
-                if x >= WIDTH * 0.75 and x <= WIDTH * 0.75 + 130 and y >= HEIGHT * 0.1 + 150 and y <= HEIGHT * 0.1 + 210:
+                if WIDTH * 0.70 <= x <= WIDTH * 0.70 + 120 and HEIGHT * 0.1 + 110 <= y <= HEIGHT * 0.1 + 160:
                     run = False
                     pygame.mixer.Channel(0).stop()
-                elif x >= WIDTH * 0.75 and x <= WIDTH * 0.75 + 120 and y >= HEIGHT * 0.1 + 230 and y <= HEIGHT * 0.1 + 290:
+                elif WIDTH * 0.70 <= x <= WIDTH * 0.70 + 250 and HEIGHT * 0.1 + 180 <= y <= HEIGHT * 0.1 + 230:
+                    game_mode = 'Classic' if game_mode == '3D' else '3D'
+                elif WIDTH * 0.70 <= x <= WIDTH * 0.70 + 250 and HEIGHT * 0.1 + 250 <= y <= HEIGHT * 0.1 + 300:
+                    if difficulty == 'Easy':
+                        difficulty = 'Normal'
+                    elif difficulty == 'Normal':
+                        difficulty = 'Hard'
+                    else:
+                        difficulty = 'Easy'
+                elif WIDTH * 0.70 <= x <= WIDTH * 0.70 + 100 and HEIGHT * 0.1 + 320 <= y <= HEIGHT * 0.1 + 370:
                     exit()
+
         sc1.blit(bg, (0, 0))
 
-        print_text(sc1, WIDTH * 0.2, HEIGHT * 0.1, 'PacMan', 100, (190, 190, 50), font='src/font4.ttf')
-        print_text(sc1, WIDTH * 0.2 + 310, HEIGHT * 0.1, '.exe', 100, (190, 0, 0), font='src/font4.ttf')
-        print_text(sc1, WIDTH * 0.3, HEIGHT - 200, 'Collect points in this dark maze', 30, (150, 150, 150), align='center', font='src/font2.ttf')
-        print_text(sc1, WIDTH * 0.3, HEIGHT - 150, 'Beware of ghosts. Heartbeat will tell you how far they are', 30, (150, 150, 150), align='center', font='src/font2.ttf')
+        print_text(sc1, WIDTH * 0.15, HEIGHT * 0.1, 'PacMan', 100, (190, 190, 50), font='src/font4.ttf')
+        print_text(sc1, WIDTH * 0.15 + 310, HEIGHT * 0.1, '.exe', 100, (190, 0, 0), font='src/font4.ttf')
+        print_text(sc1, WIDTH * 0.25, HEIGHT - 200, 'Collect points in this maze', 30, (150, 150, 150), align='center', font='src/font2.ttf')
+        print_text(sc1, WIDTH * 0.25, HEIGHT - 150, 'Switch between 3D and Classic mode from the menu!', 30, (150, 150, 150), align='center', font='src/font2.ttf')
 
         color1 = (255, 0, 0)
         color2 = (255, 0, 0)
         x, y = pygame.mouse.get_pos()
-        if x >= WIDTH * 0.75 and x <= WIDTH * 0.75 + 130 and y >= HEIGHT * 0.1 + 150 and y <= HEIGHT * 0.1 + 210:
+        if WIDTH * 0.70 <= x <= WIDTH * 0.70 + 120 and HEIGHT * 0.1 + 110 <= y <= HEIGHT * 0.1 + 160:
             color1 = (180, 0, 0)
-        if x >= WIDTH * 0.75 and x <= WIDTH * 0.75 + 120 and y >= HEIGHT * 0.1 + 230 and y <= HEIGHT * 0.1 + 290:
+        if WIDTH * 0.70 <= x <= WIDTH * 0.70 + 100 and HEIGHT * 0.1 + 320 <= y <= HEIGHT * 0.1 + 370:
             color2 = (180, 0, 0)
 
         draw_buttons_main(sc1, color1, color2)
@@ -761,7 +807,7 @@ def draw_main_menu():
 
 
 def draw_screamer(color):
-    pygame.mixer.Channel(0).set_volume(0.4)
+    pygame.mixer.Channel(0).set_volume(0.4 * master_volume)
     pygame.mixer.Channel(0).play(pygame.mixer.Sound('src/screamer.mp3'))
     delta_y = 200
 
@@ -783,7 +829,6 @@ def draw_screamer(color):
                 exit()
 
         sc1.blit(bg, (0, 0))
-
         sc1.blit(image, (WIDTH // 2 - image.get_width() // 2 + random.randint(-50, 50) * (delta_y / 200), delta_y - 200))
         image = pygame.transform.scale(image, (size, size))
         delta_y *= 0.95
@@ -811,14 +856,13 @@ def draw_lose_screen():
 
         print_text(sc1, WIDTH / 2, HEIGHT * 0.1, 'Game Over', 100, (180, 0, 0), align='center', font='src/font3.ttf')
         print_text(sc1, WIDTH / 2, HEIGHT * 0.5, 'Score ' + str(score), 100, (200, 0, 0), align='center', font='src/font2.ttf')
-        print_text(sc1, WIDTH / 2, HEIGHT * 0.4, f'Reached level {level}', 100, (200, 0, 0), align='center',
-                   font='src/font2.ttf')
+        print_text(sc1, WIDTH / 2, HEIGHT * 0.4, f'Reached level {level}', 100, (200, 0, 0), align='center', font='src/font2.ttf')
 
         x, y = pygame.mouse.get_pos()
         delta_color = 0
         if x >= WIDTH / 2 - 150 and x <= WIDTH / 2 + 150 and y >= HEIGHT - 200 and y <= HEIGHT - 100:
             delta_color = 50
-        print_text(sc1, WIDTH / 2, HEIGHT - 200, 'Continue', 100, (180 - delta_color, 180 - delta_color, 180 - delta_color), align='center', font='src/font2.ttf')
+        print_text(sc1, WIDTH / 2, HEIGHT - 200, 'Continue', 100, (180 - delta_color, 180 - delta_color, 180 - delta_color), align='center', font='src/font3.ttf')
 
         pygame.display.flip()
         clock1.tick(FPS)
@@ -841,52 +885,39 @@ def draw_win_screen():
 
         print_text(sc1, WIDTH / 2, HEIGHT * 0.1, f'Level {level - 1} complete', 100, (200, 200, 200), align='center', font='src/font3.ttf')
         print_text(sc1, WIDTH / 2 - 200, HEIGHT / 2 - 50, 'Time:', 100, (200, 0, 0), align='left', font='src/font4.ttf')
-        surf = print_text(sc1, WIDTH / 2 + 20, HEIGHT / 2 - 50, str(time // FPS // 60), 100, (180, 180, 180),
-                   align='left', font='src/font4.ttf')
-        print_text(sc1, WIDTH / 2 + 20 + surf.get_width() + 10, HEIGHT / 2 - 50, 'm', 100, (200, 0, 0),
-                   align='left', font='src/font4.ttf')
-        surf1 = print_text(sc1, WIDTH / 2 + 120 + surf.get_width(), HEIGHT / 2 - 50, str((time // FPS) % 60), 100, (180, 180, 180),
-                   align='left', font='src/font4.ttf')
-        print_text(sc1, WIDTH / 2 + 140 + surf.get_width() + surf1.get_width(), HEIGHT / 2 - 50, 's', 100, (200, 0, 0),
-                   align='left', font='src/font4.ttf')
+        surf = print_text(sc1, WIDTH / 2 + 20, HEIGHT / 2 - 50, str(time // FPS // 60), 100, (180, 180, 180), align='left', font='src/font4.ttf')
+        print_text(sc1, WIDTH / 2 + 20 + surf.get_width() + 10, HEIGHT / 2 - 50, 'm', 100, (200, 0, 0), align='left', font='src/font4.ttf')
+        surf1 = print_text(sc1, WIDTH / 2 + 120 + surf.get_width(), HEIGHT / 2 - 50, str((time // FPS) % 60), 100, (180, 180, 180), align='left', font='src/font4.ttf')
+        print_text(sc1, WIDTH / 2 + 140 + surf.get_width() + surf1.get_width(), HEIGHT / 2 - 50, 's', 100, (200, 0, 0), align='left', font='src/font4.ttf')
 
-        print_text(sc1, WIDTH / 2, HEIGHT / 2 + 150, f'score {score}', 100, (200, 0, 0),
-                   align='center', font='src/font2.ttf')
+        print_text(sc1, WIDTH / 2, HEIGHT / 2 + 150, f'score {score}', 100, (200, 0, 0), align='center', font='src/font2.ttf')
 
         x, y = pygame.mouse.get_pos()
         delta_color = 0
         if x >= WIDTH / 2 - 150 and x <= WIDTH / 2 + 150 and y >= HEIGHT * 0.85 and y <= HEIGHT * 0.85 + 100:
             delta_color = 50
-        print_text(sc1, WIDTH / 2, HEIGHT * 0.85, 'Continue', 100, (180 - delta_color, 180 - delta_color, 180 - delta_color), align='center', font='src/font2.ttf')
+        print_text(sc1, WIDTH / 2, HEIGHT * 0.85, 'Continue', 100, (180 - delta_color, 180 - delta_color, 180 - delta_color), align='center', font='src/font3.ttf')
 
         pygame.display.flip()
         clock1.tick(FPS)
 
 
-
-
 app = App()
-
 sc1 = pygame.display.set_mode((WIDTH, HEIGHT))
 clock1 = pygame.time.Clock()
-
 result = None
 
 while True:
-
-
     pygame.mixer.init()
     if result is None or result == 'exit':
         draw_main_menu()
         time = 0
     elif type(result) == tuple:
-
         draw_screamer(result[1])
         draw_lose_screen()
         level = 1
         score = 0
         draw_main_menu()
-
     else:
         level += 1
         draw_win_screen()
@@ -895,8 +926,5 @@ while True:
         points1 = 174 - super_points
         points = int(100 + min((level - 1) / 10, 1) * (points1 - 100))
 
-
     app.create_window()
     result = app.main()
-
-
