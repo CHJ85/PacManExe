@@ -15,7 +15,7 @@ Create a new folder and open it in terminal
 
 Then enter this command to clone my repository
 ```
-git clone https://github.com/Olzeev/PacManExe.git
+git clone https://github.com/CHJ85/PacManExe.git
 ```
 Go to 'PacMacExe' folder
 ```commandline
@@ -24,7 +24,6 @@ cd PacManExe
 Also you may need to install some libraries:
 ```commandline
 pip install pygame
-pip install keyboard
 ```
 Now you can start the game
 ```commandline
