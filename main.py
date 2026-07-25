@@ -425,20 +425,21 @@ class Sprite:
                         dist *= cos(radians(FOV / 2 - current_ray * angle_delta))
 
                         if 0 <= current_ray <= RAYS_AMOUNT - 1:
-                            angle_in_screen_tan = (WALL_HEIGHT / 2) / dist
+                            safe_dist = dist if dist != 0 else 0.0001
+                            angle_in_screen_tan = (WALL_HEIGHT / 2) / safe_dist
                             fragment_height = angle_in_screen_tan * DISTANCE_TO_SCREEN * 2
                             shift = fragment_height / 2 * 1.4
 
                             add_y = sin(time_moving / 5) * 30
                             sprite_pos_on_screen = (WIDTH - current_ray * (WIDTH // RAYS_AMOUNT), HEIGHT / 2 - fragment_height / 2 + shift + add_y)
-                            c = min(int(255 / dist * 50), 255)
+                            c = min(int(255 / safe_dist * 50), 255)
                             if 0 <= sprite_pos_on_screen[0] < WIDTH and 0 <= sprite_pos_on_screen[1] < HEIGHT:
                                 if field.field[y][x] == 0:
                                     color = (c, c, 0)
-                                    to_draw.append(('circle', dist, color, sprite_pos_on_screen, fragment_height / 10))
+                                    to_draw.append(('circle', safe_dist, color, sprite_pos_on_screen, fragment_height / 10))
                                 elif field.field[y][x] == 2:
                                     color = (c, 0, 0)
-                                    to_draw.append(('circle', dist, color, sprite_pos_on_screen, fragment_height / 7))
+                                    to_draw.append(('circle', safe_dist, color, sprite_pos_on_screen, fragment_height / 7))
 
         return to_draw
 
@@ -609,11 +610,9 @@ class App:
             pygame.event.set_grab(False)
 
         field = Field()
-
         start_x = 9 * TILE_SIZE + TILE_SIZE // 2
         start_y = 13 * TILE_SIZE + TILE_SIZE // 2
         player = Player(start_x, start_y)
-
         ray_caster = RayCaster()
         NPC_s = [NPC(850, 950, pygame.image.load('src/ghosts/ghost1.png'), pygame.image.load('src/ghosts/ghost1_super.png'), 'red'),
                  NPC(900, 950, pygame.image.load('src/ghosts/ghost2.png'), pygame.image.load('src/ghosts/ghost2_super.png'), 'blue'),
@@ -717,8 +716,9 @@ class App:
             if hunt:
                 self.danger_volume = max(self.danger_volume, 0.02)
                 self.danger_volume *= 1.07
+                self.danger_volume = min(self.danger_volume, 1.0)
             else:
-                self.danger_volume = min(self.danger_volume, 1)
+                self.danger_volume = min(self.danger_volume, 1.0)
                 self.danger_volume /= 1.07
 
             dist = None
